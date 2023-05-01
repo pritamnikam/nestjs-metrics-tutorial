@@ -44,7 +44,7 @@ helm create nestjs-metrics
 cd nestjs-metrics
 cd templates
 rm -rf tests
-kubectl create deployment nestjs-metrics --image=thepritam/nestjs-metrics --port 3000 --dry-run=client -o yaml > deployment.yaml
+kubectl create deployment nestjs-metrics --image={remote-tag} --port 3000 --dry-run=client -o yaml > deployment.yaml
 
 ```
 
