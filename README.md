@@ -1,73 +1,100 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="200" alt="Nest Logo" /></a>
-</p>
+# A Tutorial On Nest.js Metrics - Prometheus & Grafana Tutorial
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
-
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
-
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Installation
+We look at how to expose metrics for our Nest.js server and get them scraped by Prometheus. We also set up a Grafana server using Helm & Kubernetes to view the metrics.
 
 ```bash
-$ npm install
+nest new nestjs-metrics-tutorial
+cd nestjs-metrics-tutorial
+npm i @willsoto/nestjs-prometheus prom-client
+npm i uuid
+npm run start:dev
 ```
 
-## Running the app
+### Dockerization
+```dockerfile
+FROM node:alpine AS development
+WORKDIR /usr/src/app
+COPY package*.json ./
+RUN npm install
+COPY . . 
+RUN npm run build
+
+FROM node:alpine as production
+ARG NODE_ENV=production
+ENV NODE_ENV=${NODE_ENV}
+WORKDIR /usr/src/app
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY . .
+COPY --from=development /usr/src/app/dist ./dist
+CMD ["node", "dist/main"]
+
+```
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+docker build -t <remote-tag>
+docker push <remote-tag>
 ```
 
-## Test
+### Setting up the k8s
+```bash
+choco install kubernetes-helm
+mkdir k8s && cd k8s
+helm create nestjs-metrics
+cd nestjs-metrics
+cd templates
+rm -rf tests
+kubectl create deployment nestjs-metrics --image=thepritam/nestjs-metrics --port 3000 --dry-run=client -o yaml > deployment.yaml
+
+```
+
+Add promethus and grafana dependencies in 'k8s/nestjs-metrics/Chart.yaml'.
+
+```yaml
+dependencies:
+  - name: prometheus
+    version: '15.18.0'
+    repository: 'https://prometheus-community.github.io/helm-charts'
+  - name: grafana
+    version: '6.43.5'
+    repository: 'https://grafana.github.io/helm-charts'
+```
+
+Update the 'k8s/nestjs-metrics/values.yaml'.
+
+```yaml
+prometheus:
+  alertmanager:
+    enabled: false
+  
+  pushgateway:
+    enabled: false
+
+  nodeExporter:
+    enabled: false
+
+grafana:
+  service:
+    type: NodePort
+```
+
+### Run the kubectl
 
 ```bash
-# unit tests
-$ npm run test
+cd ..
+helm dependency update
+helm install nestjs-metrics .
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+kubectl get po
+kubectl logs nestjs-metrics-b8896bc77-9dgrw --follow
 ```
 
-## Support
+### Run grafana and 
+Open the grafana dashboard 'http://localhost:{NodePort}/' and set prometheus as data source. 
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+kubectl get service
+kubectl get secret nestjs-metrics-grafana -o jsonpath="{.data.admin-password}" | base64 --decode; echo
+```
 
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](LICENSE).
+Tutorial: https://www.youtube.com/watch?v=2ESOGJTXv1s
